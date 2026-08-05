@@ -386,15 +386,16 @@
 <div class="shell">
   <div class="topbar">
     <div>
-      <p class="brand-eyebrow">NAS MEDIA · SHARED ARCHIVE</p>
-      <h1 class="brand-title">제작가이드 아카이브</h1>
-      <p class="brand-sub">매체별 최신 제작가이드를 구글 스프레드시트에 실시간으로 저장하고, 팀과 함께 갱신합니다.</p>
+      <h1 class="brand-title">매체별 제작가이드</h1>
     </div>
     <div class="topbar-actions">
       <button class="btn btn-ghost btn-sm" id="btnRefresh" title="구글 시트에서 다시 불러오기">↻ 새로고침</button>
-      <button class="btn btn-ghost" id="btnTemplate">엑셀 템플릿 다운로드</button>
-      <button class="btn btn-ghost" id="btnExcelImport">엑셀로 일괄 업로드</button>
+      <button class="btn btn-ghost" id="btnTemplate">가이드 템플릿</button>
+      <button class="btn btn-ghost" id="btnExcelImport">가이드 일괄 업로드</button>
       <input type="file" id="excelInput" accept=".xlsx,.xls">
+      <button class="btn btn-ghost" id="btnSpecTemplate">규격 템플릿</button>
+      <button class="btn btn-ghost" id="btnSpecExcelImport">규격 일괄 업로드</button>
+      <input type="file" id="specExcelInput" accept=".xlsx,.xls">
       <button class="btn btn-ghost" id="btnExport">엑셀로 내보내기</button>
       <button class="btn btn-primary" id="btnAddGuide">+ 가이드 추가</button>
     </div>
@@ -1362,6 +1363,94 @@
       if(updateItems.length) await updateRowsBatch(updateItems);
       await refreshFromSheet();
       toast(`엑셀 반영 완료 · 신규 ${added} · 갱신 ${updated} · 건너뜀 ${skipped}`);
+    }catch(err){
+      console.error(err);
+      handleSheetError(err);
+    }finally{
+      e.target.value = "";
+    }
+  });
+  // ---------- excel: 규격 템플릿 다운로드 ----------
+  $("#btnSpecTemplate").onclick = () => {
+    const wsData = [
+      ["매체명","지면","광고유형","항목","광고사이즈","파일형식","비고"],
+      ["YouTube","PC/MO","인스트림/쇼츠/인피드","동영상","유튜브 영상 링크","text","유튜브 동영상 URL 전달 필요"],
+      ["","","","CTA(필수)","최대 10바이트(한글 2, 영어1)","",""],
+      ["","","","광고 제목(선택)","최대 30바이트","",""],
+      ["","","","긴 광고 제목(필수)","최대 90바이트","",""],
+      ["","","","설명(필수)","최대 70바이트","",""],
+      ["Meta / Instagram","피드","이미지","이미지 사이즈","1080x1080px","jpg, png",""]
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws["!cols"] = [{wch:16},{wch:14},{wch:20},{wch:18},{wch:34},{wch:12},{wch:26}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "규격표");
+    XLSX.writeFile(wb, "규격표_업로드_템플릿.xlsx");
+    toast("같은 규격의 항목이 여러 개면, 아래 행에서 매체명/지면/광고유형/파일형식/비고를 비워두고 항목·광고사이즈만 채워주세요.");
+  };
+  // ---------- excel: 규격 일괄 업로드 (→ 구글 시트에 직접 반영) ----------
+  $("#btnSpecExcelImport").onclick = () => $("#specExcelInput").click();
+  $("#specExcelInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {type:"array"});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {defval:""});
+      const existingMediaNames = new Set(media.map(m=>m.name));
+      const newMediaRows = [];
+      // 매체명이 채워진 행 = 새 규격 블록 시작, 비어있는 행 = 직전 블록의 추가 항목(병합 셀 스타일)
+      const parsedSpecs = [];
+      let current = null;
+      let skippedRows = 0;
+      rows.forEach(row => {
+        const mediaName = String(row["매체명"]||"").trim();
+        const surface = String(row["지면"]||"").trim();
+        const adType = String(row["광고유형"]||"").trim();
+        const itemName = String(row["항목"]||"").trim();
+        const content = String(row["광고사이즈"]||"").trim();
+        const fileFormat = String(row["파일형식"]||"").trim();
+        const note = String(row["비고"]||"").trim();
+        if(mediaName){
+          current = { media: mediaName, surface, adType, fileFormat, note, items: [] };
+          parsedSpecs.push(current);
+          if(!existingMediaNames.has(mediaName)){
+            newMediaRows.push(mediaRowArray({ id: uid(), name: mediaName }));
+            existingMediaNames.add(mediaName);
+          }
+        }
+        if(!current){ if(itemName || content) skippedRows++; return; }
+        if(itemName || content) current.items.push({ item: itemName, content });
+      });
+      const validSpecs = parsedSpecs.filter(s => s.surface && s.items.length>0);
+      skippedRows += parsedSpecs.length - validSpecs.length;
+      const newSpecRows = [];
+      const updateItems = [];
+      let added = 0, updated = 0;
+      validSpecs.forEach(s => {
+        const existing = specs.find(x => x.media===s.media && x.surface===s.surface && x.adType===s.adType);
+        if(existing){
+          updateItems.push({ rowNumber: existing.rowNumber, rowArray: specRowArray({
+            ...existing, items: s.items, fileFormat: s.fileFormat || existing.fileFormat,
+            note: s.note || existing.note, updatedAt: Date.now()
+          })});
+          updated++;
+        }else{
+          newSpecRows.push(specRowArray({
+            id: uid(), media: s.media, surface: s.surface, adType: s.adType,
+            items: s.items, fileFormat: s.fileFormat, note: s.note,
+            updatedAt: Date.now(), order: specs.filter(x=>x.media===s.media).length + newSpecRows.length
+          }));
+          added++;
+        }
+      });
+      toast("구글 시트에 반영하는 중...");
+      if(newMediaRows.length) await appendRows(newMediaRows);
+      if(newSpecRows.length) await appendRows(newSpecRows);
+      if(updateItems.length) await updateRowsBatch(updateItems);
+      await refreshFromSheet();
+      toast(`규격 반영 완료 · 신규 ${added} · 갱신 ${updated} · 건너뜀 ${skippedRows}`);
     }catch(err){
       console.error(err);
       handleSheetError(err);
