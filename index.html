@@ -167,7 +167,17 @@
     padding:2px 4px;
     line-height:1;
   }
-  .media-item:hover .media-del{opacity:1;}
+  .media-edit{
+    opacity:0;
+    border:none;
+    background:none;
+    color:var(--ink-soft);
+    font-size:13px;
+    padding:2px 4px;
+    line-height:1;
+  }
+  .media-item:hover .media-del, .media-item:hover .media-edit{opacity:1;}
+  .media-edit:hover{color:var(--accent);}
   .sidebar-divider{height:1px; background:var(--line); margin:14px 20px;}
   .add-media-row{
     display:flex; gap:6px; padding:0 20px;
@@ -764,11 +774,17 @@
       const item = el("div", "media-item" + (activeMedia===m.name ? " active" : ""));
       item.innerHTML = `<span>${escapeHtml(m.name)}</span>`;
       const right = el("span");
-      right.innerHTML = `<span class="media-count">${count}</span> <button class="media-del" title="매체 삭제">✕</button>`;
+      right.innerHTML = `<span class="media-count">${count}</span> <button class="media-edit" title="매체명 수정">✎</button><button class="media-del" title="매체 삭제">✕</button>`;
       item.appendChild(right);
       item.onclick = (e) => {
-        if(e.target.classList.contains("media-del")) return;
+        if(e.target.classList.contains("media-del") || e.target.classList.contains("media-edit")) return;
         activeMedia = m.name; renderSidebar(); renderGuides(); renderSpecSection();
+      };
+      item.querySelector(".media-edit").onclick = async (e) => {
+        e.stopPropagation();
+        const newName = prompt("새 매체명을 입력해주세요.", m.name);
+        if(newName === null) return;
+        await renameMedia(m, newName);
       };
       item.querySelector(".media-del").onclick = async (e) => {
         e.stopPropagation();
@@ -786,6 +802,25 @@
       };
       wrap.appendChild(item);
     });
+  }
+  async function renameMedia(m, newNameRaw){
+    const newName = newNameRaw.trim();
+    if(!newName || newName === m.name) return;
+    if(media.some(x => x.name === newName)){ toast(`"${newName}" 매체가 이미 있어요.`); return; }
+    const updates = [{ rowNumber: m.rowNumber, row: mediaRowArray({ id: m.id, name: newName }) }];
+    guides.filter(g => g.media === m.name).forEach(g => {
+      updates.push({ rowNumber: g.rowNumber, row: guideRowArray({ ...g, media: newName }) });
+    });
+    specs.filter(s => s.media === m.name).forEach(s => {
+      updates.push({ rowNumber: s.rowNumber, row: specRowArray({ ...s, media: newName }) });
+    });
+    try{
+      toast("매체명 수정하는 중...");
+      await updateRowsBatch(updates.map(u => ({ rowNumber: u.rowNumber, rowArray: u.row })));
+      if(activeMedia === m.name) activeMedia = newName;
+      await refreshFromSheet();
+      toast("매체명을 수정했어요.");
+    }catch(err){ handleSheetError(err); }
   }
   function renderGuides(){
     const area = $("#guideArea");
