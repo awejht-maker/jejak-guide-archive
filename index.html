@@ -138,6 +138,7 @@
     gap:8px;
     padding:10px 20px;
     border-left:3px solid transparent;
+    border-top:2px solid transparent;
     cursor:pointer;
     font-size:14px;
     font-weight:500;
@@ -149,6 +150,17 @@
     color:var(--accent);
     font-weight:600;
   }
+  .media-item.dragging{opacity:.4;}
+  .media-item.drag-over{border-top-color:var(--accent);}
+  .media-handle{
+    display:inline-block;
+    cursor:grab;
+    color:var(--ink-soft);
+    opacity:.4;
+    margin-right:6px;
+    font-size:13px;
+  }
+  .media-item:hover .media-handle{opacity:1;}
   .media-count{
     font-family:'IBM Plex Mono',monospace;
     font-size:11px;
@@ -176,19 +188,6 @@
     padding:2px 4px;
     line-height:1;
   }
-  .media-move{
-    opacity:0;
-    border:none;
-    background:none;
-    color:var(--ink-soft);
-    font-size:10px;
-    padding:2px 3px;
-    line-height:1;
-  }
-  .media-move:disabled{opacity:0 !important; cursor:default;}
-  .media-item:hover .media-move{opacity:1;}
-  .media-item:hover .media-move:disabled{opacity:.25;}
-  .media-move:hover:not(:disabled){color:var(--accent);}
   .media-item:hover .media-del, .media-item:hover .media-edit{opacity:1;}
   .media-edit:hover{color:var(--accent);}
   .sidebar-divider{height:1px; background:var(--line); margin:14px 20px;}
@@ -779,6 +778,7 @@
   }
 
   // ---------- rendering ----------
+  let draggedMediaId = null;
   function renderSidebar(){
     const wrap = $("#mediaList");
     wrap.innerHTML = "";
@@ -787,25 +787,42 @@
     allItem.onclick = () => { activeMedia = null; renderSidebar(); renderGuides(); renderSpecSection(); };
     wrap.appendChild(allItem);
     const sortedMedia = media.slice().sort((a,b)=>a.order-b.order);
-    sortedMedia.forEach((m, idx) => {
+    sortedMedia.forEach((m) => {
       const count = guides.filter(g => g.media === m.name).length;
       const item = el("div", "media-item" + (activeMedia===m.name ? " active" : ""));
-      item.innerHTML = `<span>${escapeHtml(m.name)}</span>`;
+      item.setAttribute("draggable", "true");
+      item.innerHTML = `<span><span class="media-handle" title="드래그해서 순서 변경">⠿</span>${escapeHtml(m.name)}</span>`;
       const right = el("span");
       right.innerHTML = `<span class="media-count">${count}</span>
-        <button class="media-move" data-dir="up" title="위로" ${idx===0?"disabled":""}>▲</button>
-        <button class="media-move" data-dir="down" title="아래로" ${idx===sortedMedia.length-1?"disabled":""}>▼</button>
         <button class="media-edit" title="매체명 수정">✎</button><button class="media-del" title="매체 삭제">✕</button>`;
       item.appendChild(right);
       item.onclick = (e) => {
         if(e.target.closest("button")) return;
         activeMedia = m.name; renderSidebar(); renderGuides(); renderSpecSection();
       };
-      item.querySelectorAll(".media-move").forEach(btn => {
-        btn.onclick = async (e) => {
-          e.stopPropagation();
-          await moveMedia(sortedMedia, idx, btn.dataset.dir);
-        };
+      item.addEventListener("dragstart", (e) => {
+        draggedMediaId = m.id;
+        item.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        try{ e.dataTransfer.setData("text/plain", m.id); }catch(err){}
+      });
+      item.addEventListener("dragend", () => {
+        item.classList.remove("dragging");
+        wrap.querySelectorAll(".media-item").forEach(x => x.classList.remove("drag-over"));
+      });
+      item.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if(draggedMediaId && draggedMediaId !== m.id) item.classList.add("drag-over");
+      });
+      item.addEventListener("dragleave", () => item.classList.remove("drag-over"));
+      item.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        item.classList.remove("drag-over");
+        const fromId = draggedMediaId;
+        draggedMediaId = null;
+        if(!fromId || fromId === m.id) return;
+        await reorderMedia(fromId, m.id);
       });
       item.querySelector(".media-edit").onclick = async (e) => {
         e.stopPropagation();
@@ -830,18 +847,20 @@
       wrap.appendChild(item);
     });
   }
-  async function moveMedia(sortedMedia, idx, dir){
-    const targetIdx = dir==="up" ? idx-1 : idx+1;
-    if(targetIdx<0 || targetIdx>=sortedMedia.length) return;
-    const prevOrders = sortedMedia.map(m => m.order);
-    sortedMedia.forEach((m,i) => { m.order = i; }); // 기존에 순서값이 전부 같았던 경우(예: 0)를 대비해 항상 순번을 다시 매김
-    const a = sortedMedia[idx], b = sortedMedia[targetIdx];
-    const tmp = a.order; a.order = b.order; b.order = tmp;
+  async function reorderMedia(fromId, toId){
+    const sorted = media.slice().sort((a,b)=>a.order-b.order);
+    const fromIdx = sorted.findIndex(m => m.id === fromId);
+    const toIdx = sorted.findIndex(m => m.id === toId);
+    if(fromIdx<0 || toIdx<0) return;
+    const prevSnapshot = media.map(m => ({ id: m.id, order: m.order })); // 실패 시 복구용
+    const [moved] = sorted.splice(fromIdx, 1);
+    sorted.splice(toIdx, 0, moved);
+    sorted.forEach((m,i) => { m.order = i; });
     renderSidebar(); // 즉시 화면 반영
     try{
-      await updateRowsBatch(sortedMedia.map(m => ({ rowNumber: m.rowNumber, rowArray: mediaRowArray(m) })));
+      await updateRowsBatch(sorted.map(m => ({ rowNumber: m.rowNumber, rowArray: mediaRowArray(m) })));
     }catch(err){
-      sortedMedia.forEach((m,i) => { m.order = prevOrders[i]; }); // 실패 시 원상복구
+      prevSnapshot.forEach(p => { const m = media.find(x=>x.id===p.id); if(m) m.order = p.order; }); // 실패 시 원상복구
       renderSidebar();
       handleSheetError(err);
     }
