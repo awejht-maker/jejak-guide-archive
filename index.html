@@ -176,6 +176,19 @@
     padding:2px 4px;
     line-height:1;
   }
+  .media-move{
+    opacity:0;
+    border:none;
+    background:none;
+    color:var(--ink-soft);
+    font-size:10px;
+    padding:2px 3px;
+    line-height:1;
+  }
+  .media-move:disabled{opacity:0 !important; cursor:default;}
+  .media-item:hover .media-move{opacity:1;}
+  .media-item:hover .media-move:disabled{opacity:.25;}
+  .media-move:hover:not(:disabled){color:var(--accent);}
   .media-item:hover .media-del, .media-item:hover .media-edit{opacity:1;}
   .media-edit:hover{color:var(--accent);}
   .sidebar-divider{height:1px; background:var(--line); margin:14px 20px;}
@@ -338,11 +351,13 @@
   table.spec-table td{
     padding:9px 10px; border:1px solid var(--line); vertical-align:top; line-height:1.5;
   }
-  .spec-row-actions{white-space:nowrap; width:56px;}
+  .spec-row-actions{white-space:nowrap; width:96px;}
   .spec-row-actions button{
-    border:none; background:none; color:var(--ink-soft); font-size:13px; padding:2px 4px;
+    border:none; background:none; color:var(--ink-soft); font-size:13px; padding:2px 3px;
   }
-  .spec-row-actions button:hover{color:var(--ink);}
+  .spec-row-actions .row-move{font-size:10px;}
+  .spec-row-actions button:disabled{opacity:.25; cursor:default;}
+  .spec-row-actions button:hover:not(:disabled){color:var(--ink);}
   table.spec-table td a{color:var(--accent); text-decoration:underline; word-break:break-all;}
   /* ---------- spec item rows (modal) ---------- */
   .spec-item-row{
@@ -390,8 +405,8 @@
     </div>
     <div class="topbar-actions">
       <button class="btn btn-ghost btn-sm" id="btnRefresh" title="구글 시트에서 다시 불러오기">↻ 새로고침</button>
-      <button class="btn btn-ghost" id="btnTemplate">가이드 템플릿</button>
-      <button class="btn btn-ghost" id="btnExcelImport">가이드 일괄 업로드</button>
+      <button class="btn btn-ghost" id="btnTemplate">제작가이드 템플릿</button>
+      <button class="btn btn-ghost" id="btnExcelImport">제작가이드 일괄 업로드</button>
       <input type="file" id="excelInput" accept=".xlsx,.xls">
       <button class="btn btn-ghost" id="btnSpecTemplate">규격 템플릿</button>
       <button class="btn btn-ghost" id="btnSpecExcelImport">규격 일괄 업로드</button>
@@ -413,7 +428,7 @@
   <main>
     <div class="main-head">
       <h2 class="main-title" id="mainTitle">전체 가이드</h2>
-      <input type="text" class="search-box" id="searchBox" placeholder="가이드명 · 매체명 · 비고 검색...">
+      <input type="text" class="search-box" id="searchBox" placeholder="매체명 · 지면 · 광고유형 검색...">
     </div>
     <div id="guideArea"></div>
     <div class="spec-section" id="specSection" style="display:none;"></div>
@@ -562,7 +577,7 @@
   // A:ID  B:구분(매체|가이드|규격)  C:매체
   // D:가이드명  E:제공방식  F:링크URL  G:파일명  H:파일크기  I:파일데이터(Base64)   ← 가이드 팝업 필드
   // J:지면  K:광고유형  L:항목목록(JSON: [{item,content}])  M:파일형식              ← 규격 팝업 필드
-  // N:비고(가이드·규격 공용)  O:수정일시  P:정렬순서(규격 전용)  Q:이미지URL(규격 전용)
+  // N:비고(가이드·규격 공용)  O:수정일시  P:정렬순서(매체·규격 공용)  Q:이미지URL(미사용)
   const HEADERS = ["ID","구분","매체","가이드명","제공방식","링크URL","파일명","파일크기","파일데이터",
                     "지면","광고유형","광고사이즈","파일형식","비고","수정일시","정렬순서","이미지URL"];
   const COL = { ID:0, KIND:1, MEDIA:2, TITLE:3, TYPE:4, URL:5, FNAME:6, FSIZE:7, FDATA:8,
@@ -669,6 +684,7 @@
   function mediaRowArray(m){
     const a = new Array(ROW_LEN).fill("");
     a[COL.ID]=m.id; a[COL.KIND]="매체"; a[COL.MEDIA]=m.name; a[COL.UPDATED]=String(Date.now());
+    a[COL.ORDER]=String(m.order||0);
     return a;
   }
   function guideRowArray(g){
@@ -710,7 +726,7 @@
       const id = c(COL.ID), kind = c(COL.KIND), mediaName = c(COL.MEDIA);
       if(!id || !kind) return;
       if(kind === "매체"){
-        media.push({ id, name: String(mediaName), rowNumber });
+        media.push({ id, name: String(mediaName), order: Number(c(COL.ORDER)) || 0, rowNumber });
       }else if(kind === "가이드"){
         const fileData = String(c(COL.FDATA) || "");
         guides.push({
@@ -770,17 +786,27 @@
     allItem.innerHTML = `<span>전체보기</span><span class="media-count">${guides.length}</span>`;
     allItem.onclick = () => { activeMedia = null; renderSidebar(); renderGuides(); renderSpecSection(); };
     wrap.appendChild(allItem);
-    media.forEach(m => {
+    const sortedMedia = media.slice().sort((a,b)=>a.order-b.order);
+    sortedMedia.forEach((m, idx) => {
       const count = guides.filter(g => g.media === m.name).length;
       const item = el("div", "media-item" + (activeMedia===m.name ? " active" : ""));
       item.innerHTML = `<span>${escapeHtml(m.name)}</span>`;
       const right = el("span");
-      right.innerHTML = `<span class="media-count">${count}</span> <button class="media-edit" title="매체명 수정">✎</button><button class="media-del" title="매체 삭제">✕</button>`;
+      right.innerHTML = `<span class="media-count">${count}</span>
+        <button class="media-move" data-dir="up" title="위로" ${idx===0?"disabled":""}>▲</button>
+        <button class="media-move" data-dir="down" title="아래로" ${idx===sortedMedia.length-1?"disabled":""}>▼</button>
+        <button class="media-edit" title="매체명 수정">✎</button><button class="media-del" title="매체 삭제">✕</button>`;
       item.appendChild(right);
       item.onclick = (e) => {
-        if(e.target.classList.contains("media-del") || e.target.classList.contains("media-edit")) return;
+        if(e.target.closest("button")) return;
         activeMedia = m.name; renderSidebar(); renderGuides(); renderSpecSection();
       };
+      item.querySelectorAll(".media-move").forEach(btn => {
+        btn.onclick = async (e) => {
+          e.stopPropagation();
+          await moveMedia(sortedMedia, idx, btn.dataset.dir);
+        };
+      });
       item.querySelector(".media-edit").onclick = async (e) => {
         e.stopPropagation();
         const newName = prompt("새 매체명을 입력해주세요.", m.name);
@@ -804,11 +830,29 @@
       wrap.appendChild(item);
     });
   }
+  async function moveMedia(sortedMedia, idx, dir){
+    const targetIdx = dir==="up" ? idx-1 : idx+1;
+    if(targetIdx<0 || targetIdx>=sortedMedia.length) return;
+    const a = sortedMedia[idx], b = sortedMedia[targetIdx];
+    const aOrder = a.order, bOrder = b.order;
+    a.order = bOrder; b.order = aOrder;
+    renderSidebar(); // 즉시 화면 반영
+    try{
+      await updateRowsBatch([
+        { rowNumber: a.rowNumber, rowArray: mediaRowArray(a) },
+        { rowNumber: b.rowNumber, rowArray: mediaRowArray(b) }
+      ]);
+    }catch(err){
+      a.order = aOrder; b.order = bOrder; // 실패 시 원상복구
+      renderSidebar();
+      handleSheetError(err);
+    }
+  }
   async function renameMedia(m, newNameRaw){
     const newName = newNameRaw.trim();
     if(!newName || newName === m.name) return;
     if(media.some(x => x.name === newName)){ toast(`"${newName}" 매체가 이미 있어요.`); return; }
-    const updates = [{ rowNumber: m.rowNumber, row: mediaRowArray({ id: m.id, name: newName }) }];
+    const updates = [{ rowNumber: m.rowNumber, row: mediaRowArray({ id: m.id, name: newName, order: m.order }) }];
     guides.filter(g => g.media === m.name).forEach(g => {
       updates.push({ rowNumber: g.rowNumber, row: guideRowArray({ ...g, media: newName }) });
     });
@@ -823,14 +867,23 @@
       toast("매체명을 수정했어요.");
     }catch(err){ handleSheetError(err); }
   }
+  function matchedSpecMedia(term){
+    const s = term.toLowerCase();
+    const set = new Set();
+    specs.forEach(sp => {
+      if((sp.surface||"").toLowerCase().includes(s) || (sp.adType||"").toLowerCase().includes(s)) set.add(sp.media);
+    });
+    return set;
+  }
   function renderGuides(){
     const area = $("#guideArea");
     const title = $("#mainTitle");
     title.textContent = activeMedia ? activeMedia + " 가이드" : "전체 가이드";
     let list = guides.filter(g => activeMedia===null || g.media===activeMedia);
-    if(searchTerm){
+    if(activeMedia===null && searchTerm){
       const s = searchTerm.toLowerCase();
-      list = list.filter(g => g.title.toLowerCase().includes(s) || (g.note||"").toLowerCase().includes(s) || (g.media||"").toLowerCase().includes(s));
+      const specMediaSet = matchedSpecMedia(searchTerm);
+      list = list.filter(g => (g.media||"").toLowerCase().includes(s) || specMediaSet.has(g.media));
     }
     list = list.slice().sort((a,b)=> b.updatedAt - a.updatedAt);
     area.innerHTML = "";
@@ -900,7 +953,7 @@
     if(media.some(m=>m.name===name)){ toast("이미 있는 매체명이에요."); return; }
     try{
       toast("추가하는 중...");
-      await appendRows([mediaRowArray({ id: uid(), name })]);
+      await appendRows([mediaRowArray({ id: uid(), name, order: media.length })]);
       input.value = "";
       await refreshFromSheet();
       toast("매체를 추가했어요.");
@@ -908,7 +961,7 @@
   };
   $("#newMediaInput").addEventListener("keydown", e => { if(e.key==="Enter"){ e.preventDefault(); $("#btnAddMedia").click(); } });
   // ---------- search ----------
-  $("#searchBox").addEventListener("input", e => { searchTerm = e.target.value; renderGuides(); });
+  $("#searchBox").addEventListener("input", e => { searchTerm = e.target.value; renderGuides(); renderSpecSection(); });
   // ---------- refresh ----------
   $("#btnRefresh").onclick = () => refreshFromSheet().then(()=>toast("최신 데이터로 갱신했어요."));
   // ---------- guide modal ----------
@@ -1057,24 +1110,42 @@
   // ---------- spec table (규격표) ----------
   function renderSpecSection(){
     const area = $("#specSection");
-    if(!activeMedia){
+    const allView = !activeMedia;
+    // 전체보기: 검색어가 없으면 규격표 숨김. 특정 매체 선택 시엔 검색과 무관하게 항상 표시.
+    if(allView && !searchTerm){
       area.style.display = "none";
       area.innerHTML = "";
       return;
     }
     area.style.display = "block";
-    const rows = specs.filter(s=>s.media===activeMedia).sort((a,b)=>a.order-b.order);
-    let html = `<div class="spec-head"><h3 class="spec-title">규격표 · ${escapeHtml(activeMedia)}</h3><button class="btn btn-sm btn-ghost" id="btnAddSpec">+ 규격 추가</button></div>`;
-    if(rows.length===0){
-      html += `<div class="spec-empty">등록된 규격이 없어요. “+ 규격 추가”로 지면/광고유형/사이즈/파일형식을 입력하면 엑셀 내보내기에 반영돼요.</div>`;
+    let rows;
+    if(allView){
+      const s = searchTerm.toLowerCase();
+      rows = specs.filter(r =>
+        (r.surface||"").toLowerCase().includes(s) ||
+        (r.adType||"").toLowerCase().includes(s)
+      ).sort((a,b)=> a.media.localeCompare(b.media) || a.order-b.order);
     }else{
-      html += `<table class="spec-table"><thead><tr><th>지면</th><th>광고유형</th><th>항목</th><th>광고사이즈</th><th>파일형식</th><th>비고</th><th></th></tr></thead><tbody>`;
-      rows.forEach(r => {
+      rows = specs.filter(s=>s.media===activeMedia).sort((a,b)=>a.order-b.order);
+    }
+    const heading = allView ? `규격 검색결과 · "${escapeHtml(searchTerm)}"` : `규격표 · ${escapeHtml(activeMedia)}`;
+    let html = `<div class="spec-head"><h3 class="spec-title">${heading}</h3>${allView ? "" : `<button class="btn btn-sm btn-ghost" id="btnAddSpec">+ 규격 추가</button>`}</div>`;
+    if(rows.length===0){
+      html += allView
+        ? `<div class="spec-empty">검색 결과에 해당하는 규격이 없어요.</div>`
+        : (searchTerm
+          ? `<div class="spec-empty">검색 결과에 해당하는 규격이 없어요.</div>`
+          : `<div class="spec-empty">등록된 규격이 없어요. “+ 규격 추가”로 지면/광고유형/사이즈/파일형식을 입력하면 엑셀 내보내기에 반영돼요.</div>`);
+    }else{
+      const mediaTh = allView ? `<th>매체</th>` : "";
+      html += `<table class="spec-table"><thead><tr>${mediaTh}<th>지면</th><th>광고유형</th><th>항목</th><th>광고사이즈</th><th>파일형식</th><th>비고</th><th></th></tr></thead><tbody>`;
+      rows.forEach((r, rIdx) => {
         const items = (r.items && r.items.length) ? r.items : [{item:"",content:""}];
         const rs = items.length;
         items.forEach((it, idx) => {
           html += `<tr data-id="${r.id}">`;
           if(idx===0){
+            if(allView) html += `<td rowspan="${rs}">${escapeHtml(r.media)}</td>`;
             html += `<td rowspan="${rs}">${escapeHtml(r.surface)}</td>`;
             html += `<td rowspan="${rs}">${escapeHtml(r.adType)}</td>`;
           }
@@ -1083,7 +1154,8 @@
           if(idx===0){
             html += `<td rowspan="${rs}">${escapeHtml(r.fileFormat)}</td>`;
             html += `<td rowspan="${rs}">${formatNote(r.note)}</td>`;
-            html += `<td rowspan="${rs}" class="spec-row-actions"><button class="row-edit" title="수정">✎</button><button class="row-del" title="삭제">✕</button></td>`;
+            const moveBtns = allView ? "" : `<button class="row-move" data-dir="up" title="위로" ${rIdx===0?"disabled":""}>▲</button><button class="row-move" data-dir="down" title="아래로" ${rIdx===rows.length-1?"disabled":""}>▼</button>`;
+            html += `<td rowspan="${rs}" class="spec-row-actions">${moveBtns}<button class="row-edit" title="수정">✎</button><button class="row-del" title="삭제">✕</button></td>`;
           }
           html += `</tr>`;
         });
@@ -1091,7 +1163,16 @@
       html += `</tbody></table>`;
     }
     area.innerHTML = html;
-    $("#btnAddSpec").onclick = () => openSpecModal(null);
+    if(!allView) $("#btnAddSpec").onclick = () => openSpecModal(null);
+    if(!allView){
+      area.querySelectorAll(".row-move").forEach(b => {
+        b.onclick = async (e) => {
+          const id = e.target.closest("tr").dataset.id;
+          const rIdx = rows.findIndex(r => r.id === id);
+          await moveSpec(rows, rIdx, b.dataset.dir);
+        };
+      });
+    }
     area.querySelectorAll(".row-edit").forEach(b => {
       b.onclick = (e) => openSpecModal(specs.find(s => s.id === e.target.closest("tr").dataset.id));
     });
@@ -1108,6 +1189,24 @@
         }catch(err){ handleSheetError(err); }
       };
     });
+  }
+  async function moveSpec(rows, idx, dir){
+    const targetIdx = dir==="up" ? idx-1 : idx+1;
+    if(idx<0 || targetIdx<0 || targetIdx>=rows.length) return;
+    const a = rows[idx], b = rows[targetIdx];
+    const aOrder = a.order, bOrder = b.order;
+    a.order = bOrder; b.order = aOrder;
+    renderSpecSection(); // 즉시 화면 반영
+    try{
+      await updateRowsBatch([
+        { rowNumber: a.rowNumber, rowArray: specRowArray(a) },
+        { rowNumber: b.rowNumber, rowArray: specRowArray(b) }
+      ]);
+    }catch(err){
+      a.order = aOrder; b.order = bOrder; // 실패 시 원상복구
+      renderSpecSection();
+      handleSheetError(err);
+    }
   }
   // ---------- spec 항목(item/content) 리스트 ----------
   function specItemRowEl(itemVal, contentVal){
@@ -1163,19 +1262,20 @@
   $("#specOverlay").addEventListener("click", e => { if(e.target.id==="specOverlay") closeSpecModal(); });
   $("#specForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    if(!activeMedia){ toast("매체를 먼저 선택해주세요."); return; }
     const id = $("#specId").value || uid();
     const existing = specs.find(s=>s.id===id);
+    const specMedia = existing ? existing.media : activeMedia;
+    if(!specMedia){ toast("매체를 먼저 선택해주세요."); return; }
     const rowNumber = existing ? existing.rowNumber : null;
     const spec = {
-      id, media: activeMedia,
+      id, media: specMedia,
       surface: $("#sSurface").value.trim(),
       adType: $("#sAdType").value.trim(),
       items: collectSpecItems(),
       fileFormat: $("#sFileFormat").value.trim(),
       note: $("#sNote").value.trim(),
       updatedAt: Date.now(),
-      order: existing ? existing.order : specs.filter(s=>s.media===activeMedia).length
+      order: existing ? existing.order : specs.filter(s=>s.media===specMedia).length
     };
     if(!spec.surface || spec.items.length===0){ toast("지면과 항목을 최소 1개 이상 입력해주세요."); return; }
     try{
