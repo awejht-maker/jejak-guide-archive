@@ -1414,10 +1414,13 @@
   }
   // ---------- excel: template download ----------
   $("#btnTemplate").onclick = () => {
+    const sortedMedia = media.slice().sort((a,b)=>a.order-b.order);
+    const m1 = sortedMedia[0] ? sortedMedia[0].name : "Meta / Instagram";
+    const m2 = sortedMedia[1] ? sortedMedia[1].name : (sortedMedia[0] ? sortedMedia[0].name : "YouTube");
     const wsData = [
       ["매체명","가이드명","타입(링크/파일)","링크URL","비고"],
-      ["Meta / Instagram","피드 이미지 광고 규격","링크","https://www.facebook.com/business/ads-guide","1080x1080px 권장"],
-      ["YouTube","트루뷰 인스트림 규격","파일","","파일은 저장 후 웹페이지에서 직접 업로드 해주세요 (최대 29KB)"]
+      [m1,"피드 이미지 광고 규격","링크","https://www.facebook.com/business/ads-guide","1080x1080px 권장"],
+      [m2,"트루뷰 인스트림 규격","파일","","파일은 저장 후 웹페이지에서 직접 업로드 해주세요 (최대 29KB)"]
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws["!cols"] = [{wch:16},{wch:26},{wch:14},{wch:36},{wch:30}];
@@ -1490,14 +1493,17 @@
   });
   // ---------- excel: 규격 템플릿 다운로드 ----------
   $("#btnSpecTemplate").onclick = () => {
+    const sortedMedia = media.slice().sort((a,b)=>a.order-b.order);
+    const m1 = sortedMedia[0] ? sortedMedia[0].name : "YouTube";
+    const m2 = sortedMedia[1] ? sortedMedia[1].name : (sortedMedia[0] ? sortedMedia[0].name : "Meta / Instagram");
     const wsData = [
       ["매체명","지면","광고유형","항목","광고사이즈","파일형식","비고"],
-      ["YouTube","PC/MO","인스트림/쇼츠/인피드","동영상","유튜브 영상 링크","text","유튜브 동영상 URL 전달 필요"],
+      [m1,"PC/MO","인스트림/쇼츠/인피드","동영상","유튜브 영상 링크","text","유튜브 동영상 URL 전달 필요"],
       ["","","","CTA(필수)","최대 10바이트(한글 2, 영어1)","",""],
       ["","","","광고 제목(선택)","최대 30바이트","",""],
       ["","","","긴 광고 제목(필수)","최대 90바이트","",""],
       ["","","","설명(필수)","최대 70바이트","",""],
-      ["Meta / Instagram","피드","이미지","이미지 사이즈","1080x1080px","jpg, png",""]
+      [m2,"피드","이미지","이미지 사이즈","1080x1080px","jpg, png",""]
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws["!cols"] = [{wch:16},{wch:14},{wch:20},{wch:18},{wch:34},{wch:12},{wch:26}];
