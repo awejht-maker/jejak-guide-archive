@@ -833,17 +833,15 @@
   async function moveMedia(sortedMedia, idx, dir){
     const targetIdx = dir==="up" ? idx-1 : idx+1;
     if(targetIdx<0 || targetIdx>=sortedMedia.length) return;
+    const prevOrders = sortedMedia.map(m => m.order);
+    sortedMedia.forEach((m,i) => { m.order = i; }); // 기존에 순서값이 전부 같았던 경우(예: 0)를 대비해 항상 순번을 다시 매김
     const a = sortedMedia[idx], b = sortedMedia[targetIdx];
-    const aOrder = a.order, bOrder = b.order;
-    a.order = bOrder; b.order = aOrder;
+    const tmp = a.order; a.order = b.order; b.order = tmp;
     renderSidebar(); // 즉시 화면 반영
     try{
-      await updateRowsBatch([
-        { rowNumber: a.rowNumber, rowArray: mediaRowArray(a) },
-        { rowNumber: b.rowNumber, rowArray: mediaRowArray(b) }
-      ]);
+      await updateRowsBatch(sortedMedia.map(m => ({ rowNumber: m.rowNumber, rowArray: mediaRowArray(m) })));
     }catch(err){
-      a.order = aOrder; b.order = bOrder; // 실패 시 원상복구
+      sortedMedia.forEach((m,i) => { m.order = prevOrders[i]; }); // 실패 시 원상복구
       renderSidebar();
       handleSheetError(err);
     }
@@ -1329,6 +1327,7 @@
       if(usedNames[sheetName]){ usedNames[sheetName]++; sheetName = (sheetName.slice(0,28) + "_" + usedNames[sheetName]); }
       else{ usedNames[sheetName] = 1; }
       const ws = wb.addWorksheet(sheetName);
+      ws.views = [{ showGridLines: false }];
       ws.columns = [{width:14},{width:16},{width:20},{width:20},{width:36},{width:16},{width:26}];
       ws.mergeCells(1,1,1,COLS);
       const title = ws.getCell(1,1);
